@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>막차 키링</title>
+<style>
+/* layout: one column phone controller — connect, fill, send, log */
+:root {
+  --bg: #f4f6f3; --panel: #ffffff; --fg: #17201a; --muted: #5d6b62; --line: #d5ddd7;
+  --accent: #0f7a4a; --warn: #b7791f; --bad: #c0392b;
+  --font: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1411; --panel: #18201b; --fg: #e8eee9; --muted: #9aa9a0; --line: #2b3830; --accent: #3ccf8a; --warn: #e3b04b; --bad: #ff6b5a; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font);
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+main { max-width: 520px; margin: 0 auto; display: grid; gap: 14px; }
+h1 { font-size: 22px; margin: 4px 0 0; }
+.sub { color: var(--muted); margin: 0; font-size: 13px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; flex: 1 1 120px; min-width: 0; }
+input { font: 16px var(--font); padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); width: 100%; }
+button { font: 600 15px var(--font); padding: 11px 14px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+.status { font-weight: 600; }
+.status.on { color: var(--accent); } .status.off { color: var(--bad); }
+.bus { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
+pre { margin: 0; font: 12px/1.45 var(--mono); color: var(--muted); max-height: 160px; overflow: auto; white-space: pre-wrap; }
+.note { font-size: 12px; color: var(--muted); margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>막차 키링</h1>
+    <p class="sub">휴대폰 → 블루투스 → micro:bit 키링. 화면은 영문·숫자만 표시됩니다.</p>
+  </div>
+
+  <section>
+    <div class="row">
+      <button id="connect">키링 연결</button>
+      <span id="status" class="status off">연결 안 됨</span>
+    </div>
+    <p class="note" id="support"></p>
+  </section>
+
+  <section>
+    <label for="stop">정류장 (영문)<input id="stop" value="Hoseo Univ Gate"></label>
+    <div class="bus">
+      <label for="r1">버스 1<input id="r1" value="7770"></label><label for="m1">분<input id="m1" type="number" value="5"></label>
+      <label for="r2">버스 2<input id="r2" value="88"></label><label for="m2">분<input id="m2" type="number" value="12"></label>
+      <label for="r3">버스 3<input id="r3" value="M5107"></label><label for="m3">분<input id="m3" type="number" value="14"></label>
+    </div>
+    <div class="row">
+      <label for="last">막차 시각<input id="last" value="23:40"></label>
+      <label for="bat">휴대폰 배터리 %<input id="bat" type="number" value="18"></label>
+    </div>
+    <label for="spot">충전 가능한 곳 (영문)<input id="spot" value="Cheonan Stn cafe"></label>
+    <div class="row">
+      <button id="send" disabled>키링으로 보내기</button>
+      <button id="demo" class="ghost" disabled>버스 다가오는 시연</button>
+    </div>
+  </section>
+
+  <section>
+    <pre id="log">기록</pre>
+  </section>
+</main>
+<script>
+const UART = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";   // 휴대폰 → 키링
+const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";   // 키링 → 휴대폰
+const $ = (id) => document.getElementById(id);
+let rx = null, device = null, demoTimer = null;
+
+function log(s) { $("log").textContent = (new Date().toTimeString().slice(0, 8) + " " + s + "\n" + $("log").textContent).slice(0, 4000); }
+function setOn(on) {
+  $("status").textContent = on ? "연결됨" : "연결 안 됨";
+  $("status").className = "status " + (on ? "on" : "off");
+  $("send").disabled = $("demo").disabled = !on;
+}
+if (!navigator.bluetooth) {
+  $("support").textContent = "이 브라우저는 블루투스 연결을 지원하지 않습니다. 안드로이드는 크롬, 아이폰은 'Bluefy' 앱으로 이 주소를 여세요.";
+  $("connect").disabled = true;
+}
+
+async function sendLine(line) {
+  if (!rx) return;
+  const data = new TextEncoder().encode(line + "\n");
+  for (let i = 0; i < data.length; i += 20) await rx.writeValue(data.slice(i, i + 20));
+  log("→ " + line);
+}
+
+$("connect").onclick = async () => {
+  try {
+    device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: "BBC micro:bit" }], optionalServices: [UART] });
+    device.addEventListener("gattserverdisconnected", () => { rx = null; setOn(false); log("연결 끊김"); });
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(UART);
+    rx = await svc.getCharacteristic(RX);
+    const tx = await svc.getCharacteristic(TX);
+    await tx.startNotifications();
+    tx.addEventListener("characteristicvaluechanged", (e) => log("← " + new TextDecoder().decode(e.target.value).trim()));
+    setOn(true);
+    log("연결: " + device.name);
+  } catch (e) { log("연결 실패: " + e.message); }
+};
+
+async function sendAll(m1) {
+  const v = (id) => $(id).value.trim().replace(/\|/g, "/");
+  await sendLine("STOP|" + v("stop"));
+  await sendLine(["BUS", v("r1"), m1 ?? v("m1"), v("r2"), v("m2"), v("r3"), v("m3")].join("|"));
+  await sendLine("LAST|" + v("last"));
+  await sendLine("BAT|" + v("bat"));
+  await sendLine("SPOT|" + v("spot"));
+}
+$("send").onclick = () => sendAll().catch((e) => log("보내기 실패: " + e.message));
+
+// 시연: 첫 버스가 10분 → 0분으로 3초마다 다가온다 (링 초록 → 노랑 → 빨강, 3분 전 알림음)
+$("demo").onclick = () => {
+  clearInterval(demoTimer);
+  let m = 10;
+  const tick = async () => {
+    $("m1").value = m;
+    await sendLine(["BUS", $("r1").value, m, $("r2").value, $("m2").value, $("r3").value, $("m3").value].join("|")).catch(() => {});
+    if (--m < 0) clearInterval(demoTimer);
+  };
+  tick(); demoTimer = setInterval(tick, 3000);
+};
+
+// 안드로이드 크롬: 실제 휴대폰 배터리 %를 채워 넣는다
+if (navigator.getBattery) navigator.getBattery().then((b) => { $("bat").value = Math.round(b.level * 100); }).catch(() => {});
+</script>
+</body>
+</html>
