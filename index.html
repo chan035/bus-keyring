@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>막차 키링</title>
 <style>
-/* layout: one column phone controller — connect, fill, send, log */
+/* layout: one column phone controller — connect, pick stop, live arrivals → keyring screen preview */
 :root {
   --bg: #f4f6f3; --panel: #ffffff; --fg: #17201a; --muted: #5d6b62; --line: #d5ddd7;
-  --accent: #0f7a4a; --warn: #b7791f; --bad: #c0392b;
+  --accent: #0f7a4a; --warn: #b7791f; --bad: #c0392b; --oled: #05080a; --oledfg: #8fe3ff;
   --font: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: light;
@@ -21,27 +21,29 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 main { max-width: 520px; margin: 0 auto; display: grid; gap: 14px; }
 h1 { font-size: 22px; margin: 4px 0 0; }
-.sub { color: var(--muted); margin: 0; font-size: 13px; }
+h2 { font-size: 15px; margin: 0; }
+.sub, .note { color: var(--muted); margin: 0; font-size: 13px; }
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; flex: 1 1 120px; min-width: 0; }
-input { font: 16px var(--font); padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); width: 100%; }
+input, select { font: 16px var(--font); padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); width: 100%; }
 button { font: 600 15px var(--font); padding: 11px 14px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
 button.ghost { background: transparent; color: var(--accent); }
 button:disabled { opacity: .45; cursor: default; }
-button:focus-visible, input:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
 .status { font-weight: 600; }
 .status.on { color: var(--accent); } .status.off { color: var(--bad); }
-.bus { display: grid; grid-template-columns: 1fr 90px; gap: 8px; }
-pre { margin: 0; font: 12px/1.45 var(--mono); color: var(--muted); max-height: 160px; overflow: auto; white-space: pre-wrap; }
-.note { font-size: 12px; color: var(--muted); margin: 0; }
+.screen { background: var(--oled); border-radius: 8px; padding: 10px; display: grid; place-items: center; }
+canvas#view { width: 256px; max-width: 100%; height: auto; image-rendering: pixelated; }
+canvas#raw { display: none; }
+pre { margin: 0; font: 12px/1.45 var(--mono); color: var(--muted); max-height: 150px; overflow: auto; white-space: pre-wrap; }
 </style>
 </head>
 <body>
 <main>
   <div>
     <h1>막차 키링</h1>
-    <p class="sub">휴대폰 → 블루투스 → micro:bit 키링. 화면은 영문·숫자만 표시됩니다.</p>
+    <p class="sub">실시간 버스 도착 정보를 블루투스로 키링 화면에 띄웁니다.</p>
   </div>
 
   <section>
@@ -53,91 +55,173 @@ pre { margin: 0; font: 12px/1.45 var(--mono); color: var(--muted); max-height: 1
   </section>
 
   <section>
-    <label for="stop">정류장 (영문)<input id="stop" value="Hoseo Univ Gate"></label>
-    <div class="bus">
-      <label for="r1">버스 1<input id="r1" value="7770"></label><label for="m1">분<input id="m1" type="number" value="5"></label>
-      <label for="r2">버스 2<input id="r2" value="88"></label><label for="m2">분<input id="m2" type="number" value="12"></label>
-      <label for="r3">버스 3<input id="r3" value="M5107"></label><label for="m3">분<input id="m3" type="number" value="14"></label>
-    </div>
+    <h2>키링 화면</h2>
+    <div class="screen"><canvas id="view" width="128" height="64"></canvas></div>
+    <canvas id="raw" width="128" height="64"></canvas>
     <div class="row">
-      <label for="last">막차 시각<input id="last" value="23:40"></label>
-      <label for="bat">휴대폰 배터리 %<input id="bat" type="number" value="18"></label>
-    </div>
-    <label for="spot">충전 가능한 곳 (영문)<input id="spot" value="Cheonan Stn cafe"></label>
-    <div class="row">
-      <button id="send" disabled>키링으로 보내기</button>
-      <button id="demo" class="ghost" disabled>버스 다가오는 시연</button>
+      <button id="sendNow" disabled>지금 화면 보내기</button>
+      <button id="demo" class="ghost">예시 화면</button>
     </div>
   </section>
 
   <section>
-    <pre id="log">기록</pre>
+    <h2>실시간 정보 (공공데이터 TAGO)</h2>
+    <label for="key">인증키 (일반 인증키 Decoding) — 이 휴대폰에만 저장<input id="key" type="password" autocomplete="off"></label>
+    <div class="row">
+      <label for="city">도시<select id="city"><option value="34010">천안</option><option value="34040">아산</option></select></label>
+      <label for="q">정류장 이름<input id="q" value="천안역"></label>
+    </div>
+    <div class="row"><button id="find" class="ghost">정류장 찾기</button></div>
+    <label for="stops">정류장 고르기<select id="stops"><option value="">먼저 찾기를 누르세요</option></select></label>
+    <div class="row">
+      <button id="live">실시간 시작 (30초마다)</button>
+      <button id="stop" class="ghost">멈춤</button>
+    </div>
   </section>
+
+  <section><pre id="log">기록</pre></section>
 </main>
 <script>
 const UART = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";   // 휴대폰 → 키링
-const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";   // 키링 → 휴대폰
+const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const API = "https://apis.data.go.kr/1613000/";
 const $ = (id) => document.getElementById(id);
-let rx = null, device = null, demoTimer = null;
+let rx = null, liveTimer = null, sentChunks = {}, busy = false;
+let screen = { title: "천안역", rows: [] };
 
 function log(s) { $("log").textContent = (new Date().toTimeString().slice(0, 8) + " " + s + "\n" + $("log").textContent).slice(0, 4000); }
 function setOn(on) {
   $("status").textContent = on ? "연결됨" : "연결 안 됨";
   $("status").className = "status " + (on ? "on" : "off");
-  $("send").disabled = $("demo").disabled = !on;
+  $("sendNow").disabled = !on;
 }
+try { $("key").value = localStorage.getItem("tagoKey") || ""; } catch (e) {}
+$("key").addEventListener("change", () => { try { localStorage.setItem("tagoKey", $("key").value.trim()); } catch (e) {} });
 if (!navigator.bluetooth) {
   $("support").textContent = "이 브라우저는 블루투스 연결을 지원하지 않습니다. 안드로이드는 크롬, 아이폰은 'Bluefy' 앱으로 이 주소를 여세요.";
   $("connect").disabled = true;
 }
 
-async function sendLine(line) {
-  if (!rx) return;
-  const data = new TextEncoder().encode(line + "\n");
-  for (let i = 0; i < data.length; i += 20) await rx.writeValue(data.slice(i, i + 20));
-  log("→ " + line);
+// ---- 화면 그리기 (128x64 흑백) ----
+function draw() {
+  const c = $("raw").getContext("2d");
+  c.fillStyle = "#000"; c.fillRect(0, 0, 128, 64);
+  c.fillStyle = "#fff"; c.textBaseline = "top";
+  c.font = "bold 13px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif";
+  c.fillText(screen.title.slice(0, 10), 0, 0);
+  c.fillRect(0, 15, 128, 1);
+  screen.rows.slice(0, 3).forEach((r, i) => {
+    const y = 18 + i * 15;
+    c.fillText(r.no + "번", 0, y);
+    const t = r.min <= 0 ? "곧 도착" : r.min + "분";
+    c.fillText(t, 128 - c.measureText(t).width, y);
+    if (r.prev != null) { c.font = "11px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif"; c.fillText(r.prev + "정거장", 52, y + 1); c.font = "bold 13px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif"; }
+  });
+  if (!screen.rows.length) c.fillText("도착 정보 없음", 0, 26);
+  // 흑백으로 자르고 미리보기에 같은 그림
+  const img = c.getImageData(0, 0, 128, 64);
+  const v = $("view").getContext("2d"), out = v.createImageData(128, 64);
+  for (let i = 0; i < 128 * 64; i++) {
+    const on = img.data[i * 4] > 110;
+    out.data[i * 4] = on ? 143 : 5; out.data[i * 4 + 1] = on ? 227 : 8; out.data[i * 4 + 2] = on ? 255 : 10; out.data[i * 4 + 3] = 255;
+  }
+  v.putImageData(out, 0, 0);
+  return img;
+}
+function chunks(img) {
+  const list = [];
+  for (let page = 0; page < 8; page++) {
+    const bytes = [];
+    for (let x = 0; x < 128; x++) {
+      let b = 0;
+      for (let bit = 0; bit < 8; bit++) if (img.data[((page * 8 + bit) * 128 + x) * 4] > 110) b |= 1 << bit;
+      bytes.push(b);
+    }
+    for (let col = 0; col < 128; col += 24) {
+      const hex = bytes.slice(col, col + 24).map((b) => b.toString(16).padStart(2, "0")).join("");
+      list.push("I" + page + col.toString(16).padStart(2, "0") + hex);
+    }
+  }
+  return list;
 }
 
+// ---- 블루투스 ----
+async function sendLine(line) {
+  const data = new TextEncoder().encode(line + "\n");
+  for (let i = 0; i < data.length; i += 20) await rx.writeValue(data.slice(i, i + 20));
+}
+async function push(force) {
+  const img = draw();
+  if (!rx || busy) return;
+  busy = true;
+  try {
+    let n = 0;
+    for (const line of chunks(img)) {
+      const k = line.slice(0, 4);
+      if (!force && sentChunks[k] === line) continue;
+      await sendLine(line); sentChunks[k] = line; n++;
+    }
+    if (screen.rows.length) await sendLine("BUS|" + screen.rows.slice(0, 3).map((r) => Math.max(0, r.min)).join("|"));
+    log("화면 보냄 (" + n + "조각)");
+  } catch (e) { log("보내기 실패: " + e.message); }
+  busy = false;
+}
 $("connect").onclick = async () => {
   try {
-    device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: "BBC micro:bit" }], optionalServices: [UART] });
+    const device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: "BBC micro:bit" }], optionalServices: [UART] });
     device.addEventListener("gattserverdisconnected", () => { rx = null; setOn(false); log("연결 끊김"); });
-    const server = await device.gatt.connect();
-    const svc = await server.getPrimaryService(UART);
+    const svc = await (await device.gatt.connect()).getPrimaryService(UART);
     rx = await svc.getCharacteristic(RX);
     const tx = await svc.getCharacteristic(TX);
     await tx.startNotifications();
     tx.addEventListener("characteristicvaluechanged", (e) => log("← " + new TextDecoder().decode(e.target.value).trim()));
-    setOn(true);
-    log("연결: " + device.name);
+    setOn(true); sentChunks = {}; log("연결: " + device.name);
+    push(true);
   } catch (e) { log("연결 실패: " + e.message); }
 };
-
-async function sendAll(m1) {
-  const v = (id) => $(id).value.trim().replace(/\|/g, "/");
-  await sendLine("STOP|" + v("stop"));
-  await sendLine(["BUS", v("r1"), m1 ?? v("m1"), v("r2"), v("m2"), v("r3"), v("m3")].join("|"));
-  await sendLine("LAST|" + v("last"));
-  await sendLine("BAT|" + v("bat"));
-  await sendLine("SPOT|" + v("spot"));
-}
-$("send").onclick = () => sendAll().catch((e) => log("보내기 실패: " + e.message));
-
-// 시연: 첫 버스가 10분 → 0분으로 3초마다 다가온다 (링 초록 → 노랑 → 빨강, 3분 전 알림음)
+$("sendNow").onclick = () => push(true);
 $("demo").onclick = () => {
-  clearInterval(demoTimer);
-  let m = 10;
-  const tick = async () => {
-    $("m1").value = m;
-    await sendLine(["BUS", $("r1").value, m, $("r2").value, $("m2").value, $("r3").value, $("m3").value].join("|")).catch(() => {});
-    if (--m < 0) clearInterval(demoTimer);
-  };
-  tick(); demoTimer = setInterval(tick, 3000);
+  screen = { title: "천안역 동부광장", rows: [{ no: "200", min: 3, prev: 2 }, { no: "500", min: 9, prev: 5 }, { no: "1000", min: 14, prev: 8 }] };
+  push(false); log("예시 화면");
 };
 
-// 안드로이드 크롬: 실제 휴대폰 배터리 %를 채워 넣는다
-if (navigator.getBattery) navigator.getBattery().then((b) => { $("bat").value = Math.round(b.level * 100); }).catch(() => {});
+// ---- 공공데이터 (TAGO) ----
+async function api(path, params) {
+  const key = $("key").value.trim();
+  if (!key) throw new Error("인증키를 넣어 주세요");
+  const u = new URL(API + path);
+  u.searchParams.set("serviceKey", key); u.searchParams.set("_type", "json"); u.searchParams.set("numOfRows", "50");
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  const r = await fetch(u);
+  const j = await r.json().catch(() => null);
+  if (!j || !j.response) throw new Error((j && JSON.stringify(j).slice(0, 120)) || ("HTTP " + r.status));
+  if (j.response.header.resultCode !== "00") throw new Error(j.response.header.resultMsg);
+  const items = j.response.body.items && j.response.body.items.item;
+  return items ? (Array.isArray(items) ? items : [items]) : [];
+}
+$("find").onclick = async () => {
+  try {
+    const list = await api("BusSttnInfoInqireService/getSttnNoList", { cityCode: $("city").value, nodeNm: $("q").value.trim() });
+    $("stops").innerHTML = list.map((s) => `<option value="${s.nodeid}">${s.nodenm} (${s.nodeno || "-"})</option>`).join("") || "<option value=''>없음</option>";
+    log("정류장 " + list.length + "곳");
+  } catch (e) { log("찾기 실패: " + e.message); }
+};
+async function refreshLive() {
+  try {
+    const nodeId = $("stops").value;
+    if (!nodeId) throw new Error("정류장을 고르세요");
+    const list = await api("ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList", { cityCode: $("city").value, nodeId });
+    const rows = list.map((a) => ({ no: String(a.routeno), min: Math.floor(Number(a.arrtime) / 60), prev: a.arrprevstationcnt }))
+      .sort((a, b) => a.min - b.min);
+    screen = { title: $("stops").selectedOptions[0].textContent.replace(/\s*\(.*\)$/, ""), rows };
+    log("실시간 " + rows.length + "대: " + rows.slice(0, 3).map((r) => r.no + " " + r.min + "분").join(", "));
+    push(false);
+  } catch (e) { log("실시간 실패: " + e.message); }
+}
+$("live").onclick = () => { clearInterval(liveTimer); refreshLive(); liveTimer = setInterval(refreshLive, 30000); };
+$("stop").onclick = () => { clearInterval(liveTimer); log("멈춤"); };
+draw();
 </script>
 </body>
 </html>
