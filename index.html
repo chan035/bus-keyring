@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>막차 키링</title>
 <style>
-/* layout: one column phone controller — connect, pick stop, live arrivals → keyring screen preview */
+/* layout: one column phone controller — one big start button, keyring screen preview, details folded below */
 :root {
   --bg: #f4f6f3; --panel: #ffffff; --fg: #17201a; --muted: #5d6b62; --line: #d5ddd7;
-  --accent: #0f7a4a; --warn: #b7791f; --bad: #c0392b; --oled: #05080a; --oledfg: #8fe3ff;
+  --accent: #0f7a4a; --warn: #b7791f; --bad: #c0392b; --oled: #05080a;
   --font: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: light;
@@ -28,28 +28,32 @@ section { background: var(--panel); border: 1px solid var(--line); border-radius
 label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; flex: 1 1 120px; min-width: 0; }
 input, select { font: 16px var(--font); padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); width: 100%; }
 button { font: 600 15px var(--font); padding: 11px 14px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+button.big { font-size: 18px; padding: 16px; width: 100%; }
 button.ghost { background: transparent; color: var(--accent); }
 button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
 .status { font-weight: 600; }
-.status.on { color: var(--accent); } .status.off { color: var(--bad); }
+.status.on { color: var(--accent); } .status.off { color: var(--bad); } .status.wait { color: var(--warn); }
 .screen { background: var(--oled); border-radius: 8px; padding: 10px; display: grid; place-items: center; }
 canvas#view { width: 256px; max-width: 100%; height: auto; image-rendering: pixelated; }
 canvas#raw { display: none; }
-pre { margin: 0; font: 12px/1.45 var(--mono); color: var(--muted); max-height: 150px; overflow: auto; white-space: pre-wrap; }
+details > summary { cursor: pointer; font-weight: 600; }
+details[open] > summary { margin-bottom: 10px; }
+pre { margin: 0; font: 12px/1.45 var(--mono); color: var(--muted); max-height: 170px; overflow: auto; white-space: pre-wrap; }
 </style>
 </head>
 <body>
 <main>
   <div>
     <h1>막차 키링</h1>
-    <p class="sub">실시간 버스 도착 정보를 블루투스로 키링 화면에 띄웁니다.</p>
+    <p class="sub">휴대폰이 1분마다 버스 도착 정보를 받아 키링 화면에 띄웁니다. 이 화면을 켜 둔 채로 다니세요.</p>
   </div>
 
   <section>
+    <button id="start" class="big">키링 연결하고 시작</button>
     <div class="row">
-      <button id="connect">키링 연결</button>
       <span id="status" class="status off">연결 안 됨</span>
+      <button id="stop" class="ghost" disabled>멈춤</button>
     </div>
     <p class="note" id="support"></p>
   </section>
@@ -58,25 +62,25 @@ pre { margin: 0; font: 12px/1.45 var(--mono); color: var(--muted); max-height: 1
     <h2>키링 화면</h2>
     <div class="screen"><canvas id="view" width="128" height="64"></canvas></div>
     <canvas id="raw" width="128" height="64"></canvas>
-    <div class="row">
-      <button id="sendNow" disabled>지금 화면 보내기</button>
-      <button id="demo" class="ghost">예시 화면</button>
-    </div>
+    <p class="note" id="next"></p>
   </section>
 
   <section>
-    <h2>실시간 정보 (공공데이터 TAGO)</h2>
-    <label for="key">인증키 (일반 인증키 Decoding) — 이 휴대폰에만 저장<input id="key" type="password" autocomplete="off"></label>
-    <div class="row">
-      <label for="city">도시<select id="city"><option value="34010">천안</option><option value="34040">아산</option></select></label>
-      <label for="q">정류장 이름<input id="q" value="천안역"></label>
-    </div>
-    <div class="row"><button id="find" class="ghost">정류장 찾기</button></div>
-    <label for="stops">정류장 고르기<select id="stops"><option value="">먼저 찾기를 누르세요</option></select></label>
-    <div class="row">
-      <button id="live">실시간 시작 (30초마다)</button>
-      <button id="stop" class="ghost">멈춤</button>
-    </div>
+    <details id="setup">
+      <summary>설정 (인증키·노선)</summary>
+      <div style="display:grid;gap:10px">
+        <label for="key">공공데이터 인증키 (일반 인증키 Decoding) — 이 휴대폰에만 저장<input id="key" type="password" autocomplete="off"></label>
+        <label for="board">키링 이름 (비우면 모든 마이크로비트 표시)<input id="board" value="zatav"></label>
+        <p class="note">기본 노선: 천캠 24번(천안역 동부광장) · 아캠 1000번(아산역 건너)</p>
+        <h2>다른 정류장 한 곳으로 바꾸기</h2>
+        <div class="row">
+          <label for="city">도시<select id="city"><option value="34010">천안</option><option value="34040">아산</option></select></label>
+          <label for="q">정류장 이름<input id="q" value="천안역"></label>
+        </div>
+        <div class="row"><button id="find" class="ghost">정류장 찾기</button></div>
+        <label for="stops">정류장 고르기<select id="stops"><option value="">기본 노선 사용 (천캠 24 · 아캠 1000)</option></select></label>
+      </div>
+    </details>
   </section>
 
   <section><pre id="log">기록</pre></section>
@@ -86,40 +90,95 @@ const UART = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const API = "https://apis.data.go.kr/1613000/";
+const REFRESH_MS = 60000;                     // 1분마다 새로고침 (맥 송신기와 같음)
+const TARGETS = [                             // [화면 이름, 도시코드, 정류소ID, 노선번호, 정류장 표시]
+  ["천캠", "34010", "CAB285000656", "24", "천안역 동부광장"],
+  ["아캠", "34040", "ASB288002219", "1000", "아산역 건너"],
+];
 const $ = (id) => document.getElementById(id);
-let rx = null, liveTimer = null, sentChunks = {}, busy = false;
-let screen = { title: "천안역", rows: [] };
+let device = null, rx = null, running = false, timer = null, busy = false, wakeLock = null, reconnecting = false;
+const SEEN = {};                              // 노선 → [받은 arrtime 초, 처음 본 시각] — 값이 그대로면 직접 카운트다운
 
-function log(s) { $("log").textContent = (new Date().toTimeString().slice(0, 8) + " " + s + "\n" + $("log").textContent).slice(0, 4000); }
-function setOn(on) {
-  $("status").textContent = on ? "연결됨" : "연결 안 됨";
-  $("status").className = "status " + (on ? "on" : "off");
-  $("sendNow").disabled = !on;
-}
-try { $("key").value = localStorage.getItem("tagoKey") || ""; } catch (e) {}
+function log(s) { $("log").textContent = (new Date().toTimeString().slice(0, 8) + " " + s + "\n" + $("log").textContent).slice(0, 5000); }
+function status(text, cls) { $("status").textContent = text; $("status").className = "status " + cls; }
+try { $("key").value = localStorage.getItem("tagoKey") || ""; $("board").value = localStorage.getItem("board") ?? "zatav"; } catch (e) {}
 $("key").addEventListener("change", () => { try { localStorage.setItem("tagoKey", $("key").value.trim()); } catch (e) {} });
+$("board").addEventListener("change", () => { try { localStorage.setItem("board", $("board").value.trim()); } catch (e) {} });
+if (!$("key").value) $("setup").open = true;
 if (!navigator.bluetooth) {
-  $("support").textContent = "이 브라우저는 블루투스 연결을 지원하지 않습니다. 안드로이드는 크롬, 아이폰은 'Bluefy' 앱으로 이 주소를 여세요.";
-  $("connect").disabled = true;
+  $("support").textContent = "이 브라우저는 블루투스 연결을 지원하지 않습니다. 안드로이드는 크롬, 아이폰은 'Bluefy' 앱(무료)으로 이 주소를 여세요.";
+  $("start").disabled = true;
 }
 
-// ---- 화면 그리기 (128x64 흑백) ----
-function draw() {
-  const c = $("raw").getContext("2d");
-  c.fillStyle = "#000"; c.fillRect(0, 0, 128, 64);
-  c.fillStyle = "#fff"; c.textBaseline = "top";
-  c.font = "bold 13px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif";
-  c.fillText(screen.title.slice(0, 10), 0, 0);
-  c.fillRect(0, 15, 128, 1);
-  screen.rows.slice(0, 3).forEach((r, i) => {
+// ---- 공공데이터 (TAGO) ----
+async function api(path, params) {
+  const key = $("key").value.trim();
+  if (!key) { $("setup").open = true; throw new Error("설정에 인증키를 넣어 주세요"); }
+  const u = new URL(API + path);
+  u.searchParams.set("serviceKey", key); u.searchParams.set("_type", "json"); u.searchParams.set("numOfRows", "50");
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(u, { signal: ctl.signal, cache: "no-store" });
+    const j = await r.json().catch(() => null);
+    if (!j || !j.response) throw new Error((j && JSON.stringify(j).slice(0, 120)) || ("HTTP " + r.status));
+    if (j.response.header.resultCode !== "00") throw new Error(j.response.header.resultMsg);
+    const items = j.response.body.items && j.response.body.items.item;
+    return (items ? (Array.isArray(items) ? items : [items]) : []).filter((a) => a && typeof a === "object");
+  } finally { clearTimeout(t); }
+}
+function countdown(route, arrSec) {
+  const now = Date.now() / 1000, old = SEEN[route];
+  if (!old || old[0] !== arrSec) SEEN[route] = [arrSec, now];
+  const [s0, t0] = SEEN[route];
+  return Math.max(0, Math.floor((s0 - (now - t0)) / 60));
+}
+async function campusRows() {
+  const rows = [];
+  for (const [label, city, node, route, stop] of TARGETS) {
+    const hits = (await api("ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList", { cityCode: city, nodeId: node }))
+      .filter((a) => String(a.routeno) === route).sort((a, b) => Number(a.arrtime) - Number(b.arrtime));
+    const a = hits[0];
+    rows.push({ label, no: route, stop, min: a ? countdown(route, Number(a.arrtime)) : null, prev: a ? a.arrprevstationcnt : null });
+  }
+  return rows;
+}
+async function stopRows() {
+  const list = await api("ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList", { cityCode: $("city").value, nodeId: $("stops").value });
+  const best = {};
+  for (const a of list) { const k = String(a.routeno); if (!best[k] || Number(a.arrtime) < Number(best[k].arrtime)) best[k] = a; }
+  return Object.values(best).map((a) => ({ no: String(a.routeno), min: countdown(String(a.routeno), Number(a.arrtime)), prev: a.arrprevstationcnt }))
+    .sort((a, b) => a.min - b.min);
+}
+
+// ---- 화면 그리기 (128x64 흑백, 맥 송신기와 같은 배치) ----
+const B13 = "bold 13px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif";
+const S11 = "11px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif";
+function drawCampus(c, rows) {
+  rows.slice(0, 2).forEach((r, i) => {
+    const y = i * 33;
+    c.font = B13; c.fillText(r.label + " " + r.no + "번", 0, y);
+    const t = r.min == null ? "정보 없음" : (r.min <= 0 ? "곧 도착" : r.min + "분");
+    c.fillText(t, 128 - c.measureText(t).width, y);
+    c.font = S11; c.fillText(r.stop + (r.prev != null ? " · " + r.prev + "정거장" : ""), 0, y + 15);
+  });
+  c.fillRect(0, 30, 128, 1);
+}
+function drawStop(c, title, rows) {
+  c.font = B13; c.fillText(title.slice(0, 10), 0, 0); c.fillRect(0, 15, 128, 1);
+  rows.slice(0, 3).forEach((r, i) => {
     const y = 18 + i * 15;
-    c.fillText(r.no + "번", 0, y);
+    c.font = B13; c.fillText(r.no + "번", 0, y);
     const t = r.min <= 0 ? "곧 도착" : r.min + "분";
     c.fillText(t, 128 - c.measureText(t).width, y);
-    if (r.prev != null) { c.font = "11px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif"; c.fillText(r.prev + "정거장", 52, y + 1); c.font = "bold 13px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif"; }
+    if (r.prev != null) { c.font = S11; c.fillText(r.prev + "정거장", 52, y + 1); }
   });
-  if (!screen.rows.length) c.fillText("도착 정보 없음", 0, 26);
-  // 흑백으로 자르고 미리보기에 같은 그림
+  if (!rows.length) { c.font = B13; c.fillText("도착 정보 없음", 0, 26); }
+}
+function render(fn) {
+  const c = $("raw").getContext("2d");
+  c.fillStyle = "#000"; c.fillRect(0, 0, 128, 64); c.fillStyle = "#fff"; c.textBaseline = "top";
+  fn(c);
   const img = c.getImageData(0, 0, 128, 64);
   const v = $("view").getContext("2d"), out = v.createImageData(128, 64);
   for (let i = 0; i < 128 * 64; i++) {
@@ -129,7 +188,7 @@ function draw() {
   v.putImageData(out, 0, 0);
   return img;
 }
-function chunks(img) {
+function chunks(img) {                        // I<page><col hex2><24바이트 hex> — I000 이 OLED 를 다시 깨운다
   const list = [];
   for (let page = 0; page < 8; page++) {
     const bytes = [];
@@ -138,90 +197,104 @@ function chunks(img) {
       for (let bit = 0; bit < 8; bit++) if (img.data[((page * 8 + bit) * 128 + x) * 4] > 110) b |= 1 << bit;
       bytes.push(b);
     }
-    for (let col = 0; col < 128; col += 24) {
-      const hex = bytes.slice(col, col + 24).map((b) => b.toString(16).padStart(2, "0")).join("");
-      list.push("I" + page + col.toString(16).padStart(2, "0") + hex);
-    }
+    for (let col = 0; col < 128; col += 24)
+      list.push("I" + page + col.toString(16).padStart(2, "0") + bytes.slice(col, col + 24).map((b) => b.toString(16).padStart(2, "0")).join(""));
   }
   return list;
 }
 
 // ---- 블루투스 ----
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(what + " 응답 없음")), ms))]);
 async function sendLine(line) {
   const data = new TextEncoder().encode(line + "\n");
-  for (let i = 0; i < data.length; i += 20) await rx.writeValue(data.slice(i, i + 20));
+  for (let i = 0; i < data.length; i += 20) await withTimeout(rx.writeValue(data.slice(i, i + 20)), 10000, "보내기");
 }
-async function push(force) {
-  const img = draw();
-  if (!rx || busy) return;
+async function attach() {
+  const server = await withTimeout(device.gatt.connect(), 20000, "연결");
+  const svc = await server.getPrimaryService(UART);
+  rx = await svc.getCharacteristic(RX);
+  const tx = await svc.getCharacteristic(TX);
+  await tx.startNotifications();
+  tx.addEventListener("characteristicvaluechanged", (e) => log("← " + new TextDecoder().decode(e.target.value).trim()));
+  status("연결됨 · " + device.name, "on"); log("연결: " + device.name);
+}
+async function reconnect() {                  // 끊기면 같은 키링에 계속 다시 붙는다 (선택창 없이)
+  if (reconnecting || !running) return;
+  reconnecting = true; rx = null;
+  for (let n = 1; running; n++) {
+    status("다시 연결 중… (" + n + "번째)", "wait");
+    try { await attach(); reconnecting = false; tick(); return; }
+    catch (e) { log("재연결 실패: " + e.message); await new Promise((r) => setTimeout(r, 5000)); }
+  }
+  reconnecting = false;
+}
+
+// ---- 1분마다: 받기 → 그리기 → 화면 전체 보내기 ----
+async function tick() {
+  if (!running || busy) return;
   busy = true;
   try {
-    let n = 0;
-    for (const line of chunks(img)) {
-      const k = line.slice(0, 4);
-      if (!force && sentChunks[k] === line) continue;
-      await sendLine(line); sentChunks[k] = line; n++;
+    let img, mins, text;
+    if ($("stops").value) {
+      const rows = await stopRows();
+      const title = $("stops").selectedOptions[0].textContent.replace(/\s*\(.*\)$/, "");
+      img = render((c) => drawStop(c, title, rows)); mins = rows.slice(0, 3).map((r) => r.min);
+      text = rows.slice(0, 3).map((r) => r.no + " " + r.min + "분").join(", ") || "도착 정보 없음";
+    } else {
+      const rows = await campusRows();
+      img = render((c) => drawCampus(c, rows)); mins = rows.map((r) => r.min).filter((m) => m != null).sort((a, b) => a - b);
+      text = rows.map((r) => r.label + " " + r.no + " " + (r.min == null ? "-" : r.min + "분")).join(", ");
     }
-    if (screen.rows.length) await sendLine("BUS|" + screen.rows.slice(0, 3).map((r) => Math.max(0, r.min)).join("|"));
-    log("화면 보냄 (" + n + "조각)");
-  } catch (e) { log("보내기 실패: " + e.message); }
+    if (rx) {
+      for (const line of chunks(img)) await sendLine(line);          // 매번 화면 전체 (첫 조각에서 OLED 다시 깨움)
+      if (mins.length) await sendLine("BUS|" + mins.map((m) => Math.max(0, m)).join("|"));
+      log("보냄: " + text);
+    } else log("받음(키링 연결 전): " + text);
+  } catch (e) {
+    log("오류: " + e.message);
+    if (/보내기 응답 없음|GATT|disconnected/i.test(e.message) && device && device.gatt.connected) device.gatt.disconnect();
+  }
   busy = false;
+  $("next").textContent = "다음 새로고침 " + new Date(Date.now() + REFRESH_MS).toTimeString().slice(0, 5);
 }
-$("connect").onclick = async () => {
-  try {
-    const device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: "BBC micro:bit" }], optionalServices: [UART] });
-    device.addEventListener("gattserverdisconnected", () => { rx = null; setOn(false); log("연결 끊김"); });
-    const svc = await (await device.gatt.connect()).getPrimaryService(UART);
-    rx = await svc.getCharacteristic(RX);
-    const tx = await svc.getCharacteristic(TX);
-    await tx.startNotifications();
-    tx.addEventListener("characteristicvaluechanged", (e) => log("← " + new TextDecoder().decode(e.target.value).trim()));
-    setOn(true); sentChunks = {}; log("연결: " + device.name);
-    push(true);
-  } catch (e) { log("연결 실패: " + e.message); }
-};
-$("sendNow").onclick = () => push(true);
-$("demo").onclick = () => {
-  screen = { title: "천안역 동부광장", rows: [{ no: "200", min: 3, prev: 2 }, { no: "500", min: 9, prev: 5 }, { no: "1000", min: 14, prev: 8 }] };
-  push(false); log("예시 화면");
-};
 
-// ---- 공공데이터 (TAGO) ----
-async function api(path, params) {
-  const key = $("key").value.trim();
-  if (!key) throw new Error("인증키를 넣어 주세요");
-  const u = new URL(API + path);
-  u.searchParams.set("serviceKey", key); u.searchParams.set("_type", "json"); u.searchParams.set("numOfRows", "50");
-  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
-  const r = await fetch(u);
-  const j = await r.json().catch(() => null);
-  if (!j || !j.response) throw new Error((j && JSON.stringify(j).slice(0, 120)) || ("HTTP " + r.status));
-  if (j.response.header.resultCode !== "00") throw new Error(j.response.header.resultMsg);
-  const items = j.response.body.items && j.response.body.items.item;
-  return items ? (Array.isArray(items) ? items : [items]) : [];
+// 화면이 꺼지면 휴대폰이 페이지를 멈추므로, 시작하면 화면을 켜 둔다
+async function keepAwake() {
+  try { if ("wakeLock" in navigator && running && document.visibilityState === "visible") wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
 }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && running) { keepAwake(); tick(); } });
+
+$("start").onclick = async () => {
+  try {
+    const name = $("board").value.trim();
+    const filters = name ? [{ name: "BBC micro:bit [" + name + "]" }] : [{ namePrefix: "BBC micro:bit" }];
+    device = await navigator.bluetooth.requestDevice({ filters, optionalServices: [UART] });
+    device.addEventListener("gattserverdisconnected", () => { log("연결 끊김"); status("끊김", "off"); reconnect(); });
+    running = true;
+    await attach();
+    $("stop").disabled = false; $("start").textContent = "다른 키링 연결";
+    keepAwake();
+    clearInterval(timer); timer = setInterval(tick, REFRESH_MS); tick();
+  } catch (e) {
+    log("연결 실패: " + e.message + (e.name === "NotFoundError" ? " — 키링 전원·배터리를 확인하거나, 맥 등 다른 기기와 연결돼 있으면 끊어 주세요" : ""));
+  }
+};
+$("stop").onclick = () => {
+  running = false; clearInterval(timer);
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  status("멈춤", "off"); $("stop").disabled = true; log("멈춤");
+};
 $("find").onclick = async () => {
   try {
     const list = await api("BusSttnInfoInqireService/getSttnNoList", { cityCode: $("city").value, nodeNm: $("q").value.trim() });
-    $("stops").innerHTML = list.map((s) => `<option value="${s.nodeid}">${s.nodenm} (${s.nodeno || "-"})</option>`).join("") || "<option value=''>없음</option>";
-    log("정류장 " + list.length + "곳");
+    $("stops").innerHTML = "<option value=''>기본 노선 사용 (천캠 24 · 아캠 1000)</option>" +
+      list.map((s) => `<option value="${s.nodeid}">${s.nodenm} (${s.nodeno || "-"})</option>`).join("");
+    log("정류장 " + list.length + "곳 — 고르면 다음 새로고침부터 그 정류장을 보여 줍니다");
   } catch (e) { log("찾기 실패: " + e.message); }
 };
-async function refreshLive() {
-  try {
-    const nodeId = $("stops").value;
-    if (!nodeId) throw new Error("정류장을 고르세요");
-    const list = await api("ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList", { cityCode: $("city").value, nodeId });
-    const rows = list.map((a) => ({ no: String(a.routeno), min: Math.floor(Number(a.arrtime) / 60), prev: a.arrprevstationcnt }))
-      .sort((a, b) => a.min - b.min);
-    screen = { title: $("stops").selectedOptions[0].textContent.replace(/\s*\(.*\)$/, ""), rows };
-    log("실시간 " + rows.length + "대: " + rows.slice(0, 3).map((r) => r.no + " " + r.min + "분").join(", "));
-    push(false);
-  } catch (e) { log("실시간 실패: " + e.message); }
-}
-$("live").onclick = () => { clearInterval(liveTimer); refreshLive(); liveTimer = setInterval(refreshLive, 30000); };
-$("stop").onclick = () => { clearInterval(liveTimer); log("멈춤"); };
-draw();
+$("stops").onchange = () => { if (running) tick(); };
+render((c) => drawCampus(c, TARGETS.map(([label, , , no, stop]) => ({ label, no, stop, min: null, prev: null }))));
 </script>
 </body>
 </html>
